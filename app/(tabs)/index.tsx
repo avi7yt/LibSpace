@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
-  SafeAreaView,
+  Animated,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
 
 type Seat = {
@@ -17,11 +17,6 @@ type Seat = {
   is_buffer: boolean | null;
   status: 'free' | 'occupied' | string | null;
 };
-
-const ZONES = {
-  quiet: 'Quiet Zone',
-  group: 'Group Zone',
-} as const;
 
 const normalizeZone = (zone: string | null) => {
   const value = (zone ?? '').toLowerCase().trim();
@@ -32,9 +27,9 @@ const normalizeZone = (zone: string | null) => {
 
 export default function HomeScreen() {
   const [seats, setSeats] = useState<Seat[]>([]);
-  const [activeZone, setActiveZone] = useState<'quiet' | 'group'>('quiet');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const pulse = useRef(new Animated.Value(1)).current;
 
   const loadSeats = useCallback(async () => {
     setErrorMessage('');
@@ -78,87 +73,174 @@ export default function HomeScreen() {
     };
   }, [loadSeats]);
 
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 0.4,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    loop.start();
+
+    return () => {
+      loop.stop();
+    };
+  }, [pulse]);
+
   const freeSeats = seats.filter((seat) => seat.status === 'free').length;
   const occupiedSeats = seats.filter((seat) => seat.status === 'occupied').length;
-  const visibleSeats = seats.filter((seat) => normalizeZone(seat.zone) === activeZone);
+  const toSeatNumber = (seatId: number | string) => Number(String(seatId).replace(/\D/g, ''));
+  const quietSeats = seats.filter((seat) => {
+    const id = toSeatNumber(seat.seat_id);
+    return Number.isFinite(id) && id >= 1 && id <= 18;
+  });
+  const groupSeats = seats.filter((seat) => {
+    const id = toSeatNumber(seat.seat_id);
+    return Number.isFinite(id) && id >= 19 && id <= 27;
+  });
+  const bufferSeats = seats.filter((seat) => {
+    const id = toSeatNumber(seat.seat_id);
+    return Number.isFinite(id) && id >= 28 && id <= 30;
+  });
 
-  const getSeatColor = (seat: Seat) => {
-    if (seat.is_buffer) return '#F4A261';
-    if (seat.status === 'occupied') return '#D9534F';
-    return '#2A9D8F';
+  const getSeatTheme = (seat: Seat) => {
+    if (seat.is_buffer) {
+      return {
+        backgroundColor: '#3d2b0a',
+        borderColor: '#F4A261',
+        textColor: '#F4A261',
+      };
+    }
+
+    if (seat.status === 'occupied') {
+      return {
+        backgroundColor: '#3d1515',
+        borderColor: '#E74C3C',
+        textColor: '#E74C3C',
+      };
+    }
+
+    return {
+      backgroundColor: '#0e3d2c',
+      borderColor: '#27AE60',
+      textColor: '#27AE60',
+    };
+  };
+
+  const renderSeatCard = (seat: Seat) => {
+    const theme = getSeatTheme(seat);
+
+    return (
+      <View
+        key={String(seat.seat_id)}
+        style={[
+          styles.seatCard,
+          {
+            backgroundColor: theme.backgroundColor,
+            borderColor: theme.borderColor,
+          },
+        ]}>
+        <Text style={[styles.seatText, { color: theme.textColor }]}>{seat.seat_id}</Text>
+      </View>
+    );
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['top']} style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
-      <View style={styles.container}>
-        <Text style={styles.appName}>LibSpace</Text>
-        <Text style={styles.subtitle}>Live seat availability</Text>
-
-        <View style={styles.statsRow}>
-          <View style={[styles.badge, styles.freeBadge]}>
-            <Text style={styles.badgeLabel}>Free</Text>
-            <Text style={styles.badgeValue}>{loading ? '...' : freeSeats}</Text>
-          </View>
-          <View style={[styles.badge, styles.occupiedBadge]}>
-            <Text style={styles.badgeLabel}>Occupied</Text>
-            <Text style={styles.badgeValue}>{loading ? '...' : occupiedSeats}</Text>
-          </View>
-        </View>
-
-        <View style={styles.tabsRow}>
-          <TouchableOpacity
-            style={[styles.tab, activeZone === 'quiet' && styles.tabActive]}
-            onPress={() => setActiveZone('quiet')}>
-            <Text style={[styles.tabText, activeZone === 'quiet' && styles.tabTextActive]}>
-              {ZONES.quiet}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeZone === 'group' && styles.tabActive]}
-            onPress={() => setActiveZone('group')}>
-            <Text style={[styles.tabText, activeZone === 'group' && styles.tabTextActive]}>
-              {ZONES.group}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {loading ? (
-          <ActivityIndicator size="large" color="#00A896" style={styles.loader} />
-        ) : (
-          <FlatList
-            data={visibleSeats}
-            keyExtractor={(item) => String(item.seat_id)}
-            numColumns={5}
-            columnWrapperStyle={styles.seatRow}
-            contentContainerStyle={styles.gridContainer}
-            renderItem={({ item }) => (
-              <View style={[styles.seatCard, { backgroundColor: getSeatColor(item) }]}>
-                <Text style={styles.seatText}>{item.seat_id}</Text>
+      <View style={styles.contentWrapper}>
+        <View style={styles.container}>
+          <View style={styles.headerSection}>
+            <View style={styles.titleRow}>
+              <Text style={styles.appName}>LibSpace</Text>
+              <View style={styles.liveRow}>
+                <Animated.View style={[styles.liveDot, { opacity: pulse }]} />
+                <Text style={styles.liveText}>Live</Text>
               </View>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No seats found for this zone.</Text>
-            }
-          />
-        )}
+            </View>
 
-        <View style={styles.legendRow}>
-          <View style={styles.legendItem}>
-            <View style={[styles.dot, { backgroundColor: '#2A9D8F' }]} />
-            <Text style={styles.legendText}>Free</Text>
+            <View style={styles.statsRow}>
+              <View style={[styles.badge, styles.freeBadge]}>
+                <View style={[styles.statDot, styles.statDotFree]} />
+                <View>
+                  <Text style={styles.badgeLabel}>Free</Text>
+                  <Text style={[styles.badgeValue, styles.badgeValueFree]}>
+                    {loading ? '...' : freeSeats}
+                  </Text>
+                </View>
+              </View>
+              <View style={[styles.badge, styles.occupiedBadge]}>
+                <View style={[styles.statDot, styles.statDotOccupied]} />
+                <View>
+                  <Text style={styles.badgeLabel}>Occupied</Text>
+                  <Text style={[styles.badgeValue, styles.badgeValueOccupied]}>
+                    {loading ? '...' : occupiedSeats}
+                  </Text>
+                </View>
+              </View>
+            </View>
           </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.dot, { backgroundColor: '#D9534F' }]} />
-            <Text style={styles.legendText}>Occupied</Text>
+
+          {loading ? (
+            <ActivityIndicator size="large" color="#00A896" style={styles.loader} />
+          ) : (
+            <ScrollView
+              style={styles.scrollView}
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}>
+              <View style={styles.zoneStack}>
+                <View style={styles.zoneSection}>
+                  <View style={styles.zoneHeaderRow}>
+                    <Text style={styles.zoneLabelTeal}>QUIET ZONE</Text>
+                    <Text style={styles.zoneCount}>{quietSeats.length} seats</Text>
+                  </View>
+                  <View style={styles.seatGrid}>{quietSeats.map((seat) => renderSeatCard(seat))}</View>
+                </View>
+
+                <View style={styles.zoneSection}>
+                  <View style={styles.zoneHeaderRow}>
+                    <Text style={styles.zoneLabelTeal}>GROUP ZONE</Text>
+                    <Text style={styles.zoneCount}>{groupSeats.length} seats</Text>
+                  </View>
+                  <View style={styles.seatGrid}>{groupSeats.map((seat) => renderSeatCard(seat))}</View>
+                </View>
+
+                <View style={styles.zoneSection}>
+                  <View style={styles.zoneHeaderRow}>
+                    <Text style={styles.zoneLabelOrange}>BUFFER ZONE</Text>
+                  </View>
+                  <View style={styles.seatGrid}>{bufferSeats.map((seat) => renderSeatCard(seat))}</View>
+                </View>
+              </View>
+            </ScrollView>
+          )}
+
+          <View style={styles.legendRow}>
+            <View style={styles.legendItem}>
+              <View style={[styles.dot, { backgroundColor: '#27AE60' }]} />
+              <Text style={styles.legendText}>Free</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.dot, { backgroundColor: '#E74C3C' }]} />
+              <Text style={styles.legendText}>Occupied</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.dot, { backgroundColor: '#F4A261' }]} />
+              <Text style={styles.legendText}>Buffer</Text>
+            </View>
           </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.dot, { backgroundColor: '#F4A261' }]} />
-            <Text style={styles.legendText}>Buffer</Text>
-          </View>
+
+          {!!errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
         </View>
-
-        {!!errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
       </View>
     </SafeAreaView>
   );
@@ -169,112 +251,156 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0D1B2A',
   },
+  contentWrapper: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
   container: {
     flex: 1,
     backgroundColor: '#0D1B2A',
-    paddingHorizontal: 24,
-    paddingTop: 24,
+  },
+  headerSection: {
+    paddingTop: 12,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   appName: {
-    color: '#E0FBFC',
-    fontSize: 40,
+    color: '#FFFFFF',
+    fontSize: 22,
     fontWeight: '800',
-    letterSpacing: 0.5,
   },
-  subtitle: {
-    color: '#8EC7C1',
-    fontSize: 16,
-    marginTop: 6,
-    marginBottom: 18,
+  liveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#00A896',
+  },
+  liveText: {
+    color: '#00A896',
+    fontSize: 12,
+    fontWeight: '700',
   },
   statsRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 14,
+    marginTop: 12,
+    marginBottom: 12,
   },
   badge: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
     gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    backgroundColor: '#132333',
   },
   freeBadge: {
-    backgroundColor: '#2A9D8F',
+    borderColor: '#1e3448',
   },
   occupiedBadge: {
-    backgroundColor: '#D9534F',
+    borderColor: '#1e3448',
+  },
+  statDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statDotFree: {
+    backgroundColor: '#27AE60',
+  },
+  statDotOccupied: {
+    backgroundColor: '#E74C3C',
   },
   badgeLabel: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  badgeValue: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  tabsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 14,
-  },
-  tab: {
-    flex: 1,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#1D3A4D',
-    paddingVertical: 10,
-    alignItems: 'center',
-    backgroundColor: '#132A3D',
-  },
-  tabActive: {
-    borderColor: '#00A896',
-    backgroundColor: '#174A59',
-  },
-  tabText: {
-    color: '#9CC8C3',
+    color: '#7B8FA8',
+    fontSize: 11,
     fontWeight: '600',
   },
-  tabTextActive: {
-    color: '#E0FBFC',
+  badgeValue: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  badgeValueFree: {
+    color: '#27AE60',
+  },
+  badgeValueOccupied: {
+    color: '#E74C3C',
   },
   loader: {
     marginTop: 24,
+    flex: 1,
   },
-  gridContainer: {
-    paddingBottom: 20,
+  scrollView: {
+    flex: 1,
   },
-  seatRow: {
+  scrollContent: {
+    paddingBottom: 24,
+  },
+  zoneStack: {
+    gap: 12,
+  },
+  zoneSection: {
+    width: '100%',
+  },
+  zoneHeaderRow: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  zoneLabelTeal: {
+    color: '#00A896',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  zoneLabelOrange: {
+    color: '#F4A261',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  zoneCount: {
+    color: '#7B8FA8',
+    fontSize: 11,
+  },
+  seatGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginHorizontal: 0,
   },
   seatCard: {
-    width: '18%',
-    aspectRatio: 1,
+    width: 48,
+    height: 48,
     borderRadius: 8,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   seatText: {
-    color: '#FFFFFF',
     fontWeight: '700',
-    fontSize: 13,
-  },
-  emptyText: {
-    color: '#8EC7C1',
-    marginTop: 16,
-    textAlign: 'center',
+    fontSize: 11,
   },
   legendRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
     paddingVertical: 12,
-    borderTopWidth: 1,
-    borderColor: '#1D3A4D',
-    marginTop: 'auto',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: '#1e3448',
+    marginTop: 8,
+    gap: 16,
   },
   legendItem: {
     flexDirection: 'row',
@@ -287,8 +413,8 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   legendText: {
-    color: '#B8D9D5',
-    fontSize: 12,
+    color: '#7B8FA8',
+    fontSize: 11,
   },
   errorText: {
     color: '#FF6B6B',
