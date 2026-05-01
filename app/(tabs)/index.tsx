@@ -61,13 +61,17 @@ export default function HomeScreen() {
 
     initialize();
 
-    const channel = supabase.channel('seats-live-count').on(
+    const channel = supabase.channel('seats-live-count');
+
+    channel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'seats' },
       () => {
         loadSeats();
       }
-    ).subscribe();
+    );
+
+    channel.subscribe();
 
     return () => {
       supabase.removeChannel(channel);
