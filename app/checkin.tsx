@@ -1,220 +1,282 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { router } from 'expo-router';
+import { useRouter } from "expo-router";
+import React, { useState } from "react";
 import {
-  Animated,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
-  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { COLORS } from '../constants/colors';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useSession } from "../hooks/useSession";
 
 export default function CheckInScreen() {
-  const [rollNumber, setRollNumber] = useState('');
-  const [error, setError] = useState('');
-  const contentOpacity = useRef(new Animated.Value(0)).current;
-  const contentTranslateY = useRef(new Animated.Value(30)).current;
+  const [selectedZone, setSelectedZone] = useState("quiet");
+  const [rollNumber, setRollNumber] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+  const { checkIn } = useSession();
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(contentOpacity, {
-        toValue: 1,
-        duration: 500,
-        easing: (value) => 1 - (1 - value) * (1 - value),
-        useNativeDriver: true,
-      }),
-      Animated.timing(contentTranslateY, {
-        toValue: 0,
-        duration: 500,
-        easing: (value) => 1 - (1 - value) * (1 - value),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [contentOpacity, contentTranslateY]);
-
-  const handleCheckIn = () => {
+  const handleCheckIn = async () => {
     if (!rollNumber.trim()) {
-      setError('Please enter your roll number');
+      setError("Please enter your roll number");
       return;
     }
 
-    setError('');
-    router.push('/seat-confirmed' as any);
+    setLoading(true);
+    setError("");
+
+    try {
+      const result = await checkIn(rollNumber.trim(), selectedZone);
+      setLoading(false);
+
+      if (result.success) {
+        router.push({
+          pathname: "/seat-confirmed",
+          params: {
+            seatNumber: String(result.seatNumber),
+            zone: result.zone,
+          },
+        });
+      } else {
+        if (result.error === "Library is full") {
+          setError("Library is full - please try again later");
+        } else {
+          setError(result.error);
+        }
+      }
+    } catch (err) {
+      setLoading(false);
+      setError("Something went wrong. Please try again.");
+    }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
-        style={styles.keyboardAvoiding}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <Animated.View
-          style={[
-            styles.container,
-            {
-              opacity: contentOpacity,
-              transform: [{ translateY: contentTranslateY }],
-            },
-          ]}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Text style={styles.backArrow}>{"\u2190"}</Text>
-          </TouchableOpacity>
-
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <View style={styles.content}>
           <Text style={styles.title}>Check in</Text>
-          <Text style={styles.subtitle}>Enter your roll number or scan your ID card</Text>
+          <Text style={styles.subtitle}>
+            Select your preferred zone to check in
+          </Text>
 
-          <View style={styles.card}>
+          <View style={styles.inputContainer}>
             <Text style={styles.inputLabel}>ROLL NUMBER</Text>
             <TextInput
+              style={[styles.input, error && styles.inputError]}
+              placeholder="Enter your roll number"
+              placeholderTextColor="#7B8FA8"
               value={rollNumber}
-              onChangeText={(value) => {
-                setRollNumber(value);
-                if (error) {
-                  setError('');
-                }
-              }}
-              placeholder="e.g. 2021CS0042"
-              placeholderTextColor={COLORS.muted}
-              style={styles.input}
-              autoCapitalize="none"
+              onChangeText={setRollNumber}
+              editable={!loading}
             />
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            {error && <Text style={styles.errorText}>{error}</Text>}
           </View>
 
-          <View style={styles.orRow}>
-            <View style={styles.orLine} />
-            <Text style={styles.orText}>OR</Text>
-            <View style={styles.orLine} />
+          <View style={styles.zoneSelectionContainer}>
+            <Text style={styles.zoneSelectionLabel}>SELECT ZONE</Text>
+            <View style={styles.zoneCardsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.zoneCard,
+                  selectedZone === "quiet"
+                    ? styles.zoneCardActive
+                    : styles.zoneCardInactive,
+                ]}
+                onPress={() => setSelectedZone("quiet")}
+              >
+                <Text
+                  style={[
+                    styles.zoneCardTitle,
+                    selectedZone === "quiet"
+                      ? styles.zoneCardTitleActive
+                      : styles.zoneCardTitleInactive,
+                  ]}
+                >
+                  Quiet Zone
+                </Text>
+                <Text
+                  style={[
+                    styles.zoneCardSubtitle,
+                    selectedZone === "quiet"
+                      ? styles.zoneCardSubtitleActive
+                      : styles.zoneCardSubtitleInactive,
+                  ]}
+                >
+                  Study alone · Silence required
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.zoneCard,
+                  selectedZone === "group"
+                    ? styles.zoneCardActive
+                    : styles.zoneCardInactive,
+                ]}
+                onPress={() => setSelectedZone("group")}
+              >
+                <Text
+                  style={[
+                    styles.zoneCardTitle,
+                    selectedZone === "group"
+                      ? styles.zoneCardTitleActive
+                      : styles.zoneCardTitleInactive,
+                  ]}
+                >
+                  Group Zone
+                </Text>
+                <Text
+                  style={[
+                    styles.zoneCardSubtitle,
+                    selectedZone === "group"
+                      ? styles.zoneCardSubtitleActive
+                      : styles.zoneCardSubtitleInactive,
+                  ]}
+                >
+                  With friends · Low talk OK
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <TouchableOpacity style={styles.scanButton}>
-            <Text style={styles.scanButtonText}>Scan QR code on ID card</Text>
+          <TouchableOpacity
+            style={[styles.checkInButton, loading && styles.buttonDisabled]}
+            onPress={handleCheckIn}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#0D1B2A" size="small" />
+            ) : (
+              <Text style={styles.checkInButtonText}>Check in</Text>
+            )}
           </TouchableOpacity>
-
-          <TouchableOpacity style={styles.primaryButton} onPress={handleCheckIn}>
-            <Text style={styles.primaryButtonText}>Check in</Text>
-          </TouchableOpacity>
-
-          <Text style={styles.note}>Default zone: Quiet - changeable after check-in</Text>
-        </Animated.View>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: COLORS.navy,
-  },
-  keyboardAvoiding: {
-    flex: 1,
-  },
   container: {
     flex: 1,
-    backgroundColor: COLORS.navy,
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 24,
+    backgroundColor: "#0D1B2A",
   },
-  backButton: {
-    alignSelf: 'flex-start',
-    paddingVertical: 6,
-    paddingRight: 8,
-  },
-  backArrow: {
-    color: COLORS.teal,
-    fontSize: 24,
-    fontWeight: '700',
+  content: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 24,
   },
   title: {
-    marginTop: 8,
-    color: COLORS.white,
     fontSize: 26,
-    fontWeight: '800',
-  },
-  subtitle: {
-    marginTop: 6,
-    color: COLORS.muted,
-    fontSize: 14,
-  },
-  card: {
-    marginTop: 24,
-    backgroundColor: COLORS.card,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 16,
-  },
-  inputLabel: {
-    color: COLORS.teal,
-    fontSize: 11,
-    letterSpacing: 0.8,
-    fontWeight: '600',
+    fontWeight: "bold",
+    color: "#FFFFFF",
+    textAlign: "center",
     marginBottom: 8,
   },
+  subtitle: {
+    fontSize: 14,
+    color: "#7B8FA8",
+    textAlign: "center",
+    marginBottom: 48,
+  },
+  inputContainer: {
+    marginBottom: 32,
+  },
+  inputLabel: {
+    fontSize: 11,
+    color: "#00A896",
+    fontWeight: "600",
+    textTransform: "uppercase",
+    marginBottom: 12,
+  },
   input: {
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    paddingBottom: 10,
-    color: COLORS.white,
+    height: 56,
+    borderWidth: 1,
+    borderColor: "#1e3448",
+    borderRadius: 12,
+    paddingHorizontal: 16,
     fontSize: 16,
+    color: "#FFFFFF",
+    backgroundColor: "transparent",
+  },
+  inputError: {
+    borderColor: "#ef4444",
   },
   errorText: {
+    color: "#ef4444",
+    fontSize: 14,
     marginTop: 8,
-    color: COLORS.occupied,
-    fontSize: 12,
   },
-  orRow: {
-    marginVertical: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    columnGap: 10,
+  checkInButton: {
+    height: 56,
+    backgroundColor: "#00A896",
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  orLine: {
+  buttonDisabled: {
+    backgroundColor: "#1e3448",
+  },
+  checkInButtonText: {
+    color: "#0D1B2A",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  zoneSelectionContainer: {
+    marginBottom: 32,
+  },
+  zoneSelectionLabel: {
+    fontSize: 11,
+    color: "#00A896",
+    fontWeight: "600",
+    textTransform: "uppercase",
+    marginBottom: 12,
+  },
+  zoneCardsRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  zoneCard: {
     flex: 1,
-    height: 1,
-    backgroundColor: COLORS.border,
-  },
-  orText: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.6,
-  },
-  scanButton: {
-    borderWidth: 1.5,
-    borderColor: COLORS.teal,
     borderRadius: 12,
     padding: 14,
+    borderWidth: 1,
   },
-  scanButtonText: {
-    color: COLORS.teal,
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
+  zoneCardActive: {
+    backgroundColor: "#0e3d2c",
+    borderColor: "#00A896",
   },
-  primaryButton: {
-    marginTop: 12,
-    backgroundColor: COLORS.teal,
-    borderRadius: 12,
-    padding: 15,
-    alignItems: 'center',
+  zoneCardInactive: {
+    backgroundColor: "#132333",
+    borderColor: "#1e3448",
   },
-  primaryButtonText: {
-    color: COLORS.navy,
-    fontSize: 15,
-    fontWeight: '700',
+  zoneCardTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 4,
   },
-  note: {
-    marginTop: 16,
-    color: COLORS.muted,
-    fontSize: 11,
-    textAlign: 'center',
+  zoneCardTitleActive: {
+    color: "#FFFFFF",
+  },
+  zoneCardTitleInactive: {
+    color: "#7B8FA8",
+  },
+  zoneCardSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  zoneCardSubtitleActive: {
+    color: "#FFFFFF",
+  },
+  zoneCardSubtitleInactive: {
+    color: "#7B8FA8",
   },
 });
